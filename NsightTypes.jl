@@ -100,6 +100,35 @@ export CudaEvent
 
 
 #________________________________________________________________________________
+# NVTX Types
+#
+
+struct NvtxEvent
+    Type::Int64
+    Timestamp::Int64
+    Text::String
+    GlobalTid::Int64
+    EndTimestamp::Int64
+    DomainId::Int64
+    NsTime::Bool
+end
+
+function NvtxEvent(data)
+    return NvtxEvent(
+        parse(Int64, data["Type"]),
+        parse(Int64, data["Timestamp"]),
+        data["Text"],
+        parse(Int64, data["GlobalTid"]),
+        parse(Int64, data["EndTimestamp"]),
+        parse(Int64, data["DomainId"]),
+        data["NsTime"]
+    )
+end
+
+export NvtxEvent
+
+
+#________________________________________________________________________________
 # Selector Types
 # reverse-engineered from nsight profile. Note this might not be stable between
 # nsight version
@@ -107,10 +136,12 @@ export CudaEvent
 
 nsight_kernel_type = 79;
 nsight_memcpy_type = 80;
+nsight_nvtx_type   = 59;
 iskernel(dict) = haskey(dict, "Type") && dict["Type"] == nsight_kernel_type;
 ismemcpy(dict) = haskey(dict, "Type") && dict["Type"] == nsight_memcpy_type;
+isnvtx(dict)   = haskey(dict, "Type") && dict["Type"] == nsight_nvtx_type;
 
-export iskernel, ismemcpy
+export iskernel, ismemcpy, isnvtx
 
 #--------------------------------------------------------------------------------
 
@@ -120,7 +151,13 @@ export iskernel, ismemcpy
 # Functions to analyze Events
 #
 
-lengthNs(evt::CudaEvent) = evt.endNs - evt.startNs
+startNs(evt::CudaEvent) = evt.startNs
+endNs(evt::CudaEvent)   = evt.endNs
+
+startNs(evt::NvtxEvent) = evt.Timestamp
+endNs(evt::NvtxEvent)   = evt.EndTimestamp
+
+lengthNs(evt::T) where T = endNs(evt) - startNs(evt)
 
 function startNs(evts::Array{T, 1}) where T
     min_start_ns::Int64 = typemax(Int64)
@@ -144,6 +181,8 @@ end
 
 lengthNs(evts::Array{T}) where T = endNs(evts) - startNs(evts)
 
+contains(A::T1, B::T2) where {T1, T2} = startNs(A) < startNs(B) && endNs(B) < endNs(A)
+
 function running_right_now(evts::Array{T, 1}, nowNs::Int64) where T
     running = Array{T, 1}(undef, 0)
     for evt in evts
@@ -154,7 +193,17 @@ function running_right_now(evts::Array{T, 1}, nowNs::Int64) where T
     return running
 end
 
-export lengthNs, startNs, endNs, running_right_now
+function contains(evts::Array{T, 1}, target_evt::Te) where {T, Te}
+    running = Array{T, 1}(undef, 0)
+    for evt in evts
+        if contains(target_evt, evt)
+            push!(running, evt)
+        end
+    end
+    return running
+end
+
+export lengthNs, startNs, endNs, running_right_now, contains
 
 #--------------------------------------------------------------------------------
 
@@ -169,6 +218,15 @@ struct NsightProfile
     events
 end
 
+function event_constructor(entry, nsight_index)
+    if haskey(entry, "CudaEvent")
+        return CudaEvent(entry["CudaEvent"], nsight_index)
+    elseif haskey(entry, "NvtxEvent")
+        return NvtxEvent(entry["NvtxEvent"])
+    else
+        throw("MalformedEntry")
+    end
+end
 
 function load(nsight_prof, selector)
     io = open(nsight_prof);
@@ -179,7 +237,7 @@ function load(nsight_prof, selector)
     while !eof(io)
         entry = JSON.parse(readline(io))
         if selector(entry)
-            push!(events, CudaEvent(entry["CudaEvent"], nsight_index))
+            push!(events, event_constructor(entry, nsight_index))
         end
     end
     close(io)
