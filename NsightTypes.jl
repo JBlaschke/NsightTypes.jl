@@ -2,7 +2,14 @@ module NsightTypes
 
 using JSON
 
+
+# if I'm trying to parse an Int64 -> Int64 => pass through the value
 Base.parse(::Type{Int64}, i::Integer) = i
+
+
+#________________________________________________________________________________
+# CUDA Kernel Type
+#
 
 struct Kernel
     staticSharedMemory::Int64
@@ -43,6 +50,16 @@ Kernel(data, nsight_index) =
         nsight_index["data"][parse(Int64, data["shortName"])]
     )
 
+export Kernel
+
+#--------------------------------------------------------------------------------
+
+
+
+#________________________________________________________________________________
+# CUDA Event Type
+#
+
 struct CudaEvent{T}
     deviceId::Int64
     streamId::Int64
@@ -76,13 +93,32 @@ function CudaEvent(data, nsight_index)
     )
 end
 
+export CudaEvent
+
+#--------------------------------------------------------------------------------
+
+
+
+#________________________________________________________________________________
+# Selector Types
 # reverse-engineered from nsight profile. Note this might not be stable between
 # nsight version
+#
+
 nsight_kernel_type = 79;
 nsight_memcpy_type = 80;
 iskernel(dict) = haskey(dict, "Type") && dict["Type"] == nsight_kernel_type;
 ismemcpy(dict) = haskey(dict, "Type") && dict["Type"] == nsight_memcpy_type;
 
+export iskernel, ismemcpy
+
+#--------------------------------------------------------------------------------
+
+
+
+#________________________________________________________________________________
+# Functions to analyze Events
+#
 
 lengthNs(evt::CudaEvent) = evt.endNs - evt.startNs
 
@@ -118,6 +154,15 @@ function running_right_now(evts::Array{T, 1}, nowNs::Int64) where T
     return running
 end
 
+export lengthNs, startNs, endNs, running_right_now
+
+#--------------------------------------------------------------------------------
+
+
+
+#________________________________________________________________________________
+# File IO
+#
 
 struct NsightProfile
     index
@@ -125,21 +170,25 @@ struct NsightProfile
 end
 
 
-function load(nsight_prof)
+function load(nsight_prof, selector)
     io = open(nsight_prof);
     # first line is the index
     nsight_index = JSON.parse(readline(io));
 
-    kernels = []
+    events = []
     while !eof(io)
         entry = JSON.parse(readline(io))
-        if iskernel(entry)
-            push!(kernels, CudaEvent(entry["CudaEvent"], nsight_index))
+        if selector(entry)
+            push!(events, CudaEvent(entry["CudaEvent"], nsight_index))
         end
     end
     close(io)
     
-    return NsightProfile(nsight_index, kernels)
+    return NsightProfile(nsight_index, events)
 end
+
+export NsightProfile, load
+
+#--------------------------------------------------------------------------------
 
 end
