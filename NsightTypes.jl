@@ -160,23 +160,13 @@ endNs(evt::NvtxEvent)   = evt.EndTimestamp
 lengthNs(evt::T) where T = endNs(evt) - startNs(evt)
 
 function startNs(evts::Array{T, 1}) where T
-    min_start_ns::Int64 = typemax(Int64)
-    for evt in evts
-        if evt.startNs < min_start_ns
-            min_start_ns = evt.startNs
-        end
-    end
-    return min_start_ns
+    sorted = sort(evts, by = x -> x.startNs)
+    sorted[1].startNs
 end
 
 function endNs(evts::Array{T, 1}) where T
-    max_end_ns::Int64 = 0
-    for evt in evts
-        if evt.endNs > max_end_ns
-            max_end_ns = evt.startNs
-        end
-    end
-    return max_end_ns
+    sorted = sort(evts, by = x -> x.endNs)
+    sorted[end].endNs
 end
 
 lengthNs(evts::Array{T}) where T = endNs(evts) - startNs(evts)
