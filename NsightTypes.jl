@@ -171,7 +171,7 @@ end
 
 lengthNs(evts::Array{T}) where T = endNs(evts) - startNs(evts)
 
-contains(A::T1, B::T2) where {T1, T2} = startNs(A) < startNs(B) && endNs(B) < endNs(A)
+contains(A::T1, B::T2) where {T1, T2} = (startNs(A) < startNs(B)) && (endNs(B) < endNs(A))
 
 function running_right_now(evts::Array{T, 1}, nowNs::Int64) where T
     running = Array{T, 1}(undef, 0)
